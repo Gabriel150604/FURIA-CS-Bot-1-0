@@ -3,6 +3,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Callb
 import os
 import random
 from dotenv import load_dotenv
+import requests
 
 # Carregar as variáveis de ambiente do arquivo .env (ex: token do bot)
 load_dotenv()
@@ -28,9 +29,6 @@ torcida_msgs = [
     "💥 QUE BALA FOI ESSA, ART!?",
     "📣 VEM COM A GENTE, TORCEDOR!",
 ]
-
-# Mensagem sobre o ranking atual da FURIA
-ranking = "🌍 FURIA está atualmente em 8º lugar no ranking da HLTV."
 
 # ----------- Comandos -----------
 
@@ -68,22 +66,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Envia uma mensagem sobre o status atual dos jogos
             await query.message.reply_text("🎮 Nenhum jogo rolando agora. Volte mais tarde!")
         case "proximos":
-            # Envia a mensagem sobre o próximo jogo
-            await query.message.reply_text("📅 Próximo jogo: FURIA x G2 - Sábado, 18h")
+            # Faz uma requisição à API para pegar os próximos jogos
+            response = requests.get("http://localhost:5000/furia")
+            data = response.json()
+            await query.message.reply_text(f"📅 Próximo jogo: {data['proximos_jogos']}")
         case "noticias":
-            # Envia a última notícia sobre a FURIA
-            await query.message.reply_text("📰 Última notícia: FURIA vence confronto contra NAVI por 2x1!")
+            # Faz uma requisição à API para pegar as últimas notícias
+            response = requests.get("http://localhost:5000/furia")
+            data = response.json()
+            await query.message.reply_text(f"📰 Última notícia: {data['noticias']}")
         case "torcida":
             # Envia uma mensagem de torcida aleatória
             await query.message.reply_text(random.choice(torcida_msgs))
         case "ranking":
-            # Envia a mensagem sobre o ranking da FURIA
-            keyboard = [
-                [InlineKeyboardButton("Ver mais detalhes", url="https://www.hltv.org/team/8297/furia")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            # Envia a mensagem de ranking e o link para mais detalhes
-            await query.message.reply_text(f"🏆 FURIA ocupa atualmente a 8ª posição no ranking da HLTV.", reply_markup=reply_markup)
+            # Faz uma requisição à API para pegar o ranking
+            response = requests.get("http://localhost:5000/furia")
+            data = response.json()
+            await query.message.reply_text(f"🏆 FURIA ocupa atualmente a {data['ranking']} posição no ranking.")
         case "contato":
             # Envia o link de contato com a FURIA via WhatsApp
             await query.message.reply_text(f"📲 Fale com o suporte oficial: {FURIA_CONTACT}")
@@ -131,6 +130,3 @@ def main():
     print("Bot rodando com botões e notificações...")
     app.run_polling()  # Inicia o bot para começar a escutar as mensagens
 
-# Função principal para executar o bot
-if __name__ == "__main__":
-    main()
