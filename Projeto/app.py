@@ -4,6 +4,7 @@ from PIL import Image
 import pytesseract
 import mysql.connector
 import os
+import re
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 
@@ -11,29 +12,47 @@ load_dotenv()
 
 pytesseract.pytesseract.tesseract_cmd = r'C:\Users\Gabriel\AppData\Local\Programs\Tesseract-OCR\tesseract.exe'
 
-# --- Função para conectar ao banco de dados MySQL ---
 def connect_to_db():
-    return mysql.connector.connect(
+    conn = mysql.connector.connect(
         host=os.getenv("DB_HOST"),
         user=os.getenv("DB_USER"),
         password=os.getenv("DB_PASSWORD"),
         database=os.getenv("DB_NAME")
     )
-    conn.autocommit = True  # Ativa o autocommit para garantir que as transações sejam salvas imediatamente
+    conn.autocommit = True
     return conn
 
+def validar_cpf(cpf: str) -> bool:
+    cpf = re.sub(r'\D', '', cpf)
+    if len(cpf) != 11 or cpf == cpf[0] * 11:
+        return False
 
-# Função para salvar dados no banco
+    def calc_digito(digs):
+        soma = sum(int(digs[i]) * (len(digs)+1-i) for i in range(len(digs)))
+        d = 11 - soma % 11
+        return '0' if d > 9 else str(d)
+
+    d1 = calc_digito(cpf[:9])
+    d2 = calc_digito(cpf[:9] + d1)
+    return cpf[-2:] == d1 + d2
+
+def cpf_ja_cadastrado(cpf: str) -> bool:
+    conn = connect_to_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM fans WHERE cpf = %s", (cpf,))
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return result is not None
+
 def save_fan_data(nome, cpf, endereco, interesses, eventos, compras):
     conn = connect_to_db()
     cursor = conn.cursor()
-
     query = """
     INSERT INTO fans (nome, cpf, endereco, interesses, eventos, compras)
     VALUES (%s, %s, %s, %s, %s, %s)
     """
     values = (nome, cpf, endereco, interesses, eventos, compras)
-
     cursor.execute(query, values)
     conn.commit()
     fan_id = cursor.lastrowid
@@ -41,55 +60,45 @@ def save_fan_data(nome, cpf, endereco, interesses, eventos, compras):
     conn.close()
     return fan_id
 
-# Função para salvar perfil de redes sociais
-def save_social_profiles(fan_id, instagram, twitter, youtube):
+def save_social_profiles(fan_id, instagram):
     conn = connect_to_db()
     cursor = conn.cursor()
-
     query = """
-    INSERT INTO social_profiles (fan_id, instagram, twitter, youtube)
-    VALUES (%s, %s, %s, %s)
+    INSERT INTO social_profiles (fan_id, instagram)
+    VALUES (%s, %s)
     """
-    values = (fan_id, instagram, twitter, youtube)
-
+    values = (fan_id, instagram)
     cursor.execute(query, values)
     conn.commit()
     cursor.close()
     conn.close()
 
-# Função para salvar o link do perfil
 def save_profile_link(fan_id, url):
     conn = connect_to_db()
     cursor = conn.cursor()
-
     query = """
     INSERT INTO profile_links (fan_id, url)
     VALUES (%s, %s)
     """
     values = (fan_id, url)
-
     cursor.execute(query, values)
     conn.commit()
     cursor.close()
     conn.close()
 
-# Função para salvar imagem do documento
 def save_document_image(fan_id, document_image_path):
     conn = connect_to_db()
     cursor = conn.cursor()
-
     query = """
     INSERT INTO documents (fan_id, document_image_path)
     VALUES (%s, %s)
     """
     values = (fan_id, document_image_path)
-
     cursor.execute(query, values)
     conn.commit()
     cursor.close()
     conn.close()
 
-# Interface do app
 st.set_page_config(page_title="Know Your Fan - eSports", layout="centered")
 st.title("🎮 Know Your Fan - Cadastro de Fã de eSports")
 
@@ -100,7 +109,6 @@ menu = st.sidebar.radio("Escolha uma etapa", [
     "4️⃣ Validação de Link de Perfil"
 ])
 
-# --- Etapa 1: Dados Básicos ---
 if menu == "1️⃣ Dados Básicos":
     st.header("📋 Dados Pessoais e Interesses")
 
@@ -114,20 +122,23 @@ if menu == "1️⃣ Dados Básicos":
     compras = st.text_input("Produtos/serviços de eSports comprados")
 
     if st.button("Salvar Dados"):
-        fan_id = save_fan_data(nome, cpf, endereco, interesses, eventos, compras)
-        st.success(f"✅ Dados salvos! Fan ID: {fan_id}")
-        st.write("Nome:", nome)
-        st.write("Interesses:", interesses)
-        st.session_state.fan_id = fan_id  # Armazenar o fan_id no session state
+        if not validar_cpf(cpf):
+            st.error("⚠️ CPF inválido. Verifique o número digitado.")
+        elif cpf_ja_cadastrado(cpf):
+            st.error("⚠️ CPF já cadastrado.")
+        else:
+            fan_id = save_fan_data(nome, cpf, endereco, interesses, eventos, compras)
+            st.success(f"✅ Dados salvos! Fan ID: {fan_id}")
+            st.write("Nome:", nome)
+            st.write("Interesses:", interesses)
+            st.session_state.fan_id = fan_id
 
-# --- Etapa 2: Upload e Validação de Documento ---
 elif menu == "2️⃣ Upload e Validação de Documento":
     st.header("🪪 Upload de Documento com IA")
 
     uploaded_file = st.file_uploader("Envie uma imagem do documento", type=["png", "jpg", "jpeg"])
 
     if uploaded_file:
-        # Garantir que o fan_id esteja disponível
         fan_id = st.session_state.get("fan_id")
 
         if fan_id is None:
@@ -141,9 +152,8 @@ elif menu == "2️⃣ Upload e Validação de Documento":
             st.text_area("Texto detectado:", texto)
 
             if any(p in texto.lower() for p in ["cpf", "nome", "nascimento"]):
-                # Salvar documento
                 document_path = os.path.join("uploads", uploaded_file.name)
-                os.makedirs(os.path.dirname(document_path), exist_ok=True)  # Cria o diretório, se necessário
+                os.makedirs(os.path.dirname(document_path), exist_ok=True)
                 with open(document_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
                 save_document_image(fan_id, document_path)
@@ -151,13 +161,10 @@ elif menu == "2️⃣ Upload e Validação de Documento":
             else:
                 st.warning("⚠️ Documento pode não conter dados válidos.")
 
-# --- Etapa 3: Redes Sociais ---
 elif menu == "3️⃣ Redes Sociais":
     st.header("🔗 Redes Sociais")
 
     instagram = st.text_input("Perfil do Instagram")
-    twitter = st.text_input("Perfil do Twitter/X")
-    youtube = st.text_input("Canal do YouTube")
 
     if st.button("Salvar Redes Sociais"):
         fan_id = st.session_state.get("fan_id")
@@ -165,13 +172,10 @@ elif menu == "3️⃣ Redes Sociais":
         if fan_id is None:
             st.error("⚠️ Você precisa salvar seus dados básicos primeiro.")
         else:
-            save_social_profiles(fan_id, instagram, twitter, youtube)
+            save_social_profiles(fan_id, instagram)
             st.success("✅ Redes sociais salvas.")
             st.write("Instagram:", instagram)
-            st.write("Twitter:", twitter)
-            st.write("YouTube:", youtube)
 
-# --- Etapa 4: Validação de Link de Perfil ---
 elif menu == "4️⃣ Validação de Link de Perfil":
     st.header("🌐 Validação de Perfil em Sites de eSports")
 
