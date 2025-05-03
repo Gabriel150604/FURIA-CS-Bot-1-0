@@ -19,9 +19,6 @@ def connect_to_db():
         password=os.getenv("DB_PASSWORD"),
         database=os.getenv("DB_NAME")
     )
-    conn.autocommit = True  # Ativa o autocommit para garantir que as transações sejam salvas imediatamente
-    return conn
-
 
 # Função para salvar dados no banco
 def save_fan_data(nome, cpf, endereco, interesses, eventos, compras):
@@ -42,15 +39,15 @@ def save_fan_data(nome, cpf, endereco, interesses, eventos, compras):
     return fan_id
 
 # Função para salvar perfil de redes sociais
-def save_social_profiles(fan_id, instagram, twitter, youtube):
+def save_social_profiles(fan_id, instagram):
     conn = connect_to_db()
     cursor = conn.cursor()
 
     query = """
-    INSERT INTO social_profiles (fan_id, instagram, twitter, youtube)
-    VALUES (%s, %s, %s, %s)
+    INSERT INTO social_profiles (fan_id, instagram)
+    VALUES (%s, %s)
     """
-    values = (fan_id, instagram, twitter, youtube)
+    values = (fan_id, instagram)
 
     cursor.execute(query, values)
     conn.commit()
@@ -123,13 +120,10 @@ if menu == "1️⃣ Dados Básicos":
 # --- Etapa 2: Upload e Validação de Documento ---
 elif menu == "2️⃣ Upload e Validação de Documento":
     st.header("🪪 Upload de Documento com IA")
-
     uploaded_file = st.file_uploader("Envie uma imagem do documento", type=["png", "jpg", "jpeg"])
 
     if uploaded_file:
-        # Garantir que o fan_id esteja disponível
         fan_id = st.session_state.get("fan_id")
-
         if fan_id is None:
             st.error("⚠️ Você precisa salvar seus dados básicos primeiro.")
         else:
@@ -140,24 +134,24 @@ elif menu == "2️⃣ Upload e Validação de Documento":
             texto = pytesseract.image_to_string(image, lang='por')
             st.text_area("Texto detectado:", texto)
 
-            if any(p in texto.lower() for p in ["cpf", "nome", "nascimento"]):
-                # Salvar documento
-                document_path = os.path.join("uploads", uploaded_file.name)
-                os.makedirs(os.path.dirname(document_path), exist_ok=True)  # Cria o diretório, se necessário
-                with open(document_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                save_document_image(fan_id, document_path)
-                st.success("✅ Documento validado e salvo.")
-            else:
-                st.warning("⚠️ Documento pode não conter dados válidos.")
+            st.warning("Revise o texto acima antes de salvar o documento.")
+
+            if st.button("Salvar Documento"):
+                if any(p in texto.lower() for p in ["cpf", "nome", "nascimento"]):
+                    document_path = os.path.join("uploads", uploaded_file.name)
+                    os.makedirs(os.path.dirname(document_path), exist_ok=True)
+                    with open(document_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+                    save_document_image(fan_id, document_path)
+                    st.success("✅ Documento validado e salvo.")
+                else:
+                    st.warning("⚠️ Documento pode não conter dados válidos.")
 
 # --- Etapa 3: Redes Sociais ---
 elif menu == "3️⃣ Redes Sociais":
     st.header("🔗 Redes Sociais")
 
     instagram = st.text_input("Perfil do Instagram")
-    twitter = st.text_input("Perfil do Twitter/X")
-    youtube = st.text_input("Canal do YouTube")
 
     if st.button("Salvar Redes Sociais"):
         fan_id = st.session_state.get("fan_id")
@@ -165,11 +159,9 @@ elif menu == "3️⃣ Redes Sociais":
         if fan_id is None:
             st.error("⚠️ Você precisa salvar seus dados básicos primeiro.")
         else:
-            save_social_profiles(fan_id, instagram, twitter, youtube)
+            save_social_profiles(fan_id, instagram)
             st.success("✅ Redes sociais salvas.")
             st.write("Instagram:", instagram)
-            st.write("Twitter:", twitter)
-            st.write("YouTube:", youtube)
 
 # --- Etapa 4: Validação de Link de Perfil ---
 elif menu == "4️⃣ Validação de Link de Perfil":
